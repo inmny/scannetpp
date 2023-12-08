@@ -38,8 +38,10 @@ def undistort_frames(
     distortion_params,
     input_image_dir,
     input_mask_dir,
+    input_depth_dir,
     out_image_dir,
     out_mask_dir,
+    out_depth_dir,
 ):
     new_K = compute_undistort_intrinsic(K, height, width, distortion_params)
     map1, map2 = cv2.fisheye.initUndistortRectifyMap(
@@ -59,6 +61,20 @@ def undistort_frames(
         out_image_path = Path(out_image_dir) / frame["file_path"]
         out_image_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(out_image_path), undistorted_image)
+
+        # Depth
+        depth_path = Path(input_depth_dir) / frame["file_path"].replace(".JPG", ".png")
+        depth = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
+        undistorted_depth = cv2.remap(
+            depth,
+            map1,
+            map2,
+            interpolation=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        out_depth_path = Path(out_depth_dir) / frame["file_path"].replace(".JPG", ".png")
+        out_depth_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out_depth_path), undistorted_depth)
 
         # Mask
         mask_path = Path(input_mask_dir) / frame["mask_path"]
@@ -134,8 +150,15 @@ def main(args):
         else:
             input_transforms_path = scene.dslr_dir / input_transforms_path
 
+        input_depth_dir = cfg.get("input_depth_dir", None)
+        if input_depth_dir is None:
+            input_depth_dir = scene.dslr_depth_dir
+        else:
+            input_depth_dir = scene.dslr_dir / input_depth_dir
+        
         out_image_dir = scene.dslr_dir / cfg.out_image_dir
         out_mask_dir = scene.dslr_dir / cfg.out_mask_dir
+        out_depth_dir = scene.dslr_dir / cfg.out_depth_dir
         out_transforms_path = scene.dslr_dir / cfg.out_transforms_path
 
         transforms = load_json(input_transforms_path)
@@ -182,8 +205,10 @@ def main(args):
             distortion_params,
             input_image_dir,
             input_mask_dir,
+            input_depth_dir,
             out_image_dir,
             out_mask_dir,
+            out_depth_dir,
         )
         new_trasforms = update_transforms_json(transforms, new_K, height, width)
         out_transforms_path.parent.mkdir(parents=True, exist_ok=True)
