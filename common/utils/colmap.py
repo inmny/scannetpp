@@ -46,10 +46,35 @@ BaseImage = collections.namedtuple(
 Point3D = collections.namedtuple(
     "Point3D", ["id", "xyz", "rgb", "error", "image_ids", "point2D_idxs"])
 
+def camera_to_intrinsic(camera):
+    '''
+    camera object to intrinsic matrix
+    fx 0  cx
+    0  fy cy
+    0  0  1
+    '''
+    return np.array([
+        [camera.params[0], 0, camera.params[2]],
+        [0, camera.params[1], camera.params[3]],
+        [0, 0, 1]
+    ])
+
 
 class Image(BaseImage):
     def qvec2rotmat(self):
         return qvec2rotmat(self.qvec)
+
+    def to_transform_mat(self):
+        '''
+        R, t matrix
+        '''
+        R = self.qvec2rotmat()
+        t = self.tvec 
+        T = np.eye(4)
+        T[:3, :3] = R
+        T[:3, 3] = t
+        return T
+
 
     @property
     def world_to_camera(self) -> np.ndarray:
@@ -504,6 +529,51 @@ def rotmat2qvec(R):
         qvec *= -1
     return qvec
 
+def get_camera_intrinsics(scene, image_type):
+    # this has all the camera info and image list with poses
+    colmap_dir = scene.iphone_colmap_dir if image_type == 'iphone' else scene.dslr_colmap_dir
+
+    # read camera intrinsics
+    intrinsics_file = colmap_dir / 'cameras.txt'
+    # there is only 1 camera model, get it
+    # reads only cx cy fx fy
+    colmap_camera = list(read_cameras_text(intrinsics_file).values())[0]
+
+    # params [0,1,2,3] give the intrinsic
+    distort_params = None
+
+    if image_type == 'dslr':
+        distort_params = np.array(list(colmap_camera.params[4:]) + [0, 0])
+
+    return colmap_camera, distort_params
+
+def get_camera_images_poses(scene, subsample_factor, image_type):
+    # this has all the camera info and image list with poses
+    colmap_dir = scene.iphone_colmap_dir if image_type == 'iphone' else scene.dslr_colmap_dir
+
+    # read camera intrinsics
+    intrinsics_file = colmap_dir / 'cameras.txt'
+    # there is only 1 camera model, get it
+    # reads only cx cy fx fy
+    colmap_camera = list(read_cameras_text(intrinsics_file).values())[0]
+    extrinsics_file = colmap_dir / 'images.txt'
+
+    # dict with key 0,1,2, value has the same "id"
+    all_extrinsics = read_images_text(extrinsics_file)
+    # sort by id and get list of objects
+    all_extrinsics = [all_extrinsics[k] for k in sorted(all_extrinsics.keys())]
+    # subsample with cfg.subsample_factor
+    subsampled_extrinsics = all_extrinsics[::subsample_factor]
+    image_names = [e.name for e in subsampled_extrinsics]
+    poses = [e.to_transform_mat() for e in subsampled_extrinsics]
+
+    # params [0,1,2,3] give the intrinsic
+    distort_params = None
+
+    if image_type == 'dslr':
+        distort_params = np.array(list(colmap_camera.params[4:]) + [0, 0])
+
+    return colmap_camera, image_names, poses, distort_params
 
 def main():
     parser = argparse.ArgumentParser(description="Read and write COLMAP binary and text models")
